@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "轻投 · 网申填写助手",
+  "version": "0.5.9",
+  "description": "在本地整理网申资料，预览并填写招聘表单，保存投递记录。",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "轻投 · 识别当前网申页面"
+  },
+  "options_page": "dashboard.html",
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self'; worker-src 'self';"
+  }
+}
+
+

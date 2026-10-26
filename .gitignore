@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.test-results/
+dist/
+*.log
+*.pem
+*.key
+*.pfx
+*backup*.json
+*profile*.json
+*storage-state*.json
+playwright-report/
+test-results/
