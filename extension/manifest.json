@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "轻投 · 网申填写助手",
-  "version": "0.5.9",
+  "version": "0.5.11",
   "description": "在本地整理网申资料，预览并填写招聘表单，保存投递记录。",
   "permissions": [
     "storage",

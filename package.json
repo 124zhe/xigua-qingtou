@@ -1,6 +1,6 @@
 {
   "name": "xigua-qingtou",
-  "version": "0.5.9",
+  "version": "0.5.11",
   "private": true,
   "description": "Local-first resume form filling extension",
   "license": "MIT",

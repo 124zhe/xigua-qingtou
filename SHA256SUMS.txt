@@ -1,1 +1,2 @@
+02a59327a506f885091368541f41ed65f0f5693ac71c2012bac77aaf65125196  downloads/xigua-qingtou-0.5.11.zip
 d89b2ccc21ef8028e4b1d5ad2ef3daafdc133e41c025c50d8cc14bb52251b49b  downloads/xigua-qingtou-0.5.9.zip

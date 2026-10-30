@@ -7,13 +7,14 @@
       .replace(/(?:\s+|[（(])\d+\s*\/\s*\d+(?:[)）])?\s*$/,'')
       .replace(/^[*＊\s]+|[*＊:：?？\s]+$/g,'').replace(/^(?:请输入|请选择|请填写|请提供|填写|输入|please\s+(?:enter|select|provide)\s+|your\s+)/i,'').trim();
   }
+  const isCampusSection=value=>/^(?:校园经历|校园活动|社团经历|学生工作|在校职务)$/.test(normalize(value).replace(/\d+$/,''));
   function sectionKind(value){
     const n=normalize(value),kinds=[];
     const heading=n.replace(/(?:必填|required|选填|optional)$/,'').replace(/\d+$/,'');
     if(/教育|学历信息|学习经历|学业经历|education|academicbackground/.test(n))kinds.push('educations');
     if(/实习|工作经历|工作经验|工作履历|职业履历|任职经历|职业经历|实践经历|internship|workexperience|employment|professionalexperience/.test(n))kinds.push('experiences');
     const research=/^(?:科研|科学研究|研究|课题研究|课题)(?:经历|经验|背景)(?:信息)?$|^research(?:experience|background)$|^(?:科研|研究|课题研究)经历researchexperience$/.test(heading);
-    if(/项目|project/.test(n)||research||(kinds.length&&/科研经历|科学研究经历|课题研究经历|研究经历|researchexperience/.test(n)))kinds.push('projects');
+    if(/项目|project/.test(n)||research||isCampusSection(heading)||(kinds.length&&/科研经历|科学研究经历|课题研究经历|研究经历|researchexperience/.test(n)))kinds.push('projects');
     return kinds.length===1?kinds[0]:'';
   }
   function sectionExperienceType(title){
@@ -111,6 +112,11 @@
   }
   function exactField(label, kind) {
     const n = normalize(labelText(label));
+    if(kind==='projects'){
+      if(n==='活动名称')return {key:'projects.name'};
+      if(/^(?:担任职务|担任的职务|职务|职位)$/.test(n))return {key:'projects.role'};
+      if(n==='经历描述')return {key:'projects.description'};
+    }
     const contact=emergencyKey(label);if(contact)return {key:'basic.'+contact};
     if(kind==='emergency'){
       if(['姓名','联系人','联系人姓名','name','contactname'].includes(n))return {key:'basic.emergencyName'};
@@ -310,7 +316,11 @@
     const clean=String(title||'').trim().replace(/\s*[（(]\d+[）)]\s*$/,'').replace(/\s+第?\d+\s*(?:条|项|段)?\s*$/,'');
     return (profile.modules||[]).filter(m=>sameLabel(title,[m.name,...m.aliases])||sameLabel(clean,[m.name,...m.aliases]));
   }
-  function moduleFields(module,label) {return (module.fields||[]).filter(f=>sameLabel(label,[f.label,...f.aliases]));}
+  function moduleFields(module,label) {
+    const groups=[['组织名称','社团名称','学生组织','活动名称'],['担任职务','职位','角色','担任角色'],['职责与成果','活动描述','工作内容','经历描述'],['开始时间','开始日期','起始时间'],['结束时间','结束日期']];
+    const campus=[module.name,...module.aliases||[]].some(isCampusSection),group=campus&&groups.find(names=>names.some(name=>normalize(name)===normalize(label)));
+    return (module.fields||[]).filter(f=>sameLabel(label,[f.label,...f.aliases])||group&&[f.label,...f.aliases].some(name=>group.some(alias=>normalize(alias)===normalize(name))));
+  }
   function moduleMappings(profile) {
     const values=[];
     for(const m of profile.modules||[])m.entries.forEach((entry,index)=>m.fields.forEach(f=>{
@@ -333,6 +343,6 @@
     if (name) result.name = name[1].trim();
     return result;
   }
-  globalThis.QTMatch = { normalize, labelText, sectionKind, educationRank, educationOrder, fieldKey, chooseOption, optionScore, isFullDate, resolve, customValue, customMatch, recordCustomMatch, questionText, questionMeaning, questionRelation, emergencyKey, importText, sensitive, manualOnly, identityKey, identityValue, moduleContexts, moduleFields, moduleMappings, unscopedModuleField, experienceType, sectionExperienceType };
+  globalThis.QTMatch = { normalize, labelText, sectionKind, isCampusSection, educationRank, educationOrder, fieldKey, chooseOption, optionScore, isFullDate, resolve, customValue, customMatch, recordCustomMatch, questionText, questionMeaning, questionRelation, emergencyKey, importText, sensitive, manualOnly, identityKey, identityValue, moduleContexts, moduleFields, moduleMappings, unscopedModuleField, experienceType, sectionExperienceType };
   if (typeof module !== 'undefined' && module.exports) module.exports = globalThis.QTMatch;
 })();

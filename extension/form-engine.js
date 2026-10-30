@@ -5,7 +5,7 @@
   const beginScan=()=>{cache={controls:new WeakMap(),evidence:new WeakMap(),records:new WeakMap(),sections:new WeakMap()};};
   const endScan=()=>{cache=null;};
   const inputSelector='input,textarea,select,[role="combobox"],[contenteditable="true"]';
-  const popupSelector='[role="listbox"],.el-select-dropdown,.el-autocomplete-suggestion,.ant-select-dropdown,.atsx-select-dropdown,.ud__select__dropdown,.aui-select-dropdown,.el-picker-panel,.ant-picker-dropdown,.ant-calendar-picker-container,.atsx-date-picker-popup,.jbs_three_layers_wrapper,.el-cascader__dropdown';
+  const popupSelector='[role="listbox"],.el-select-dropdown,.el-autocomplete-suggestion,.ant-select-dropdown,.atsx-select-dropdown,.ud__select__dropdown,.aui-select-dropdown,.el-picker-panel,.ant-picker-dropdown,.ant-calendar-picker-container,.atsx-date-picker-popup,.jbs_three_layers_wrapper,.el-cascader__dropdown,.ant-cascader-menus';
   const visible=el=>!!el&&getComputedStyle(el).visibility!=='hidden'&&getComputedStyle(el).display!=='none'&&!!el.getClientRects().length;
   const feedbackSelector='.el-input__count,.el-input__count-inner,.el-textarea__count,.ant-input-data-count,.ant-input-show-count-suffix,.word-count,.word-counter,.char-count,.char-counter,.character-count,.character-counter,[data-counter],.el-form-item__error,.ant-form-explain,.ant-form-item-explain,.ant-form-item-explain-error,.atsx-form-explain,.ud-formily-item-error-message,.error-message,.validation-error,.validation-message,.invalid-feedback,[data-validation-error],[role="alert"],.checkTip';
   const countText=value=>{const clean=String(value||'').normalize('NFKC').trim().replace(/^[([]\s*|\s*[)\]]$/g,'');return /^(?:(?:已(?:输入|填写|用)|字数)\s*[:：]?\s*)?\d[\d,]*\s*(?:\/|of|out of)\s*\d[\d,]*(?:\s*(?:字|字符|个字符|characters?|chars?))?$/i.test(clean)||/^(?:剩余|还可(?:输入|填写)|最多|不超过|限(?:填)?)\s*\d+\s*(?:字|字符|个字符)$/.test(clean);};
@@ -27,6 +27,16 @@
     if(el===endInput)return {type:'date',library:'ant3-month',root:end,range,kind,side:'endDate',startInput,endInput};
     return null;
   }
+  function pairedDates(el){
+    const picker=el.closest('.ant-calendar-picker'),root=picker?.parentElement;
+    if(!root)return null;
+    const pickers=[...root.querySelectorAll(':scope > .ant-calendar-picker')];
+    if(pickers.length!==2||pickers.some(p=>p.querySelectorAll('input').length!==1))return null;
+    const inputs=pickers.map(p=>p.querySelector('input'));
+    const start=inputs.filter(n=>/^(开始|起始)(日期|时间)$/.test(n.placeholder)),end=inputs.filter(n=>/^(结束|截止)(日期|时间)$/.test(n.placeholder));
+    if(start.length!==1||end.length!==1||start[0]===end[0]||!inputs.includes(el))return null;
+    return {range:root,startInput:start[0],endInput:end[0],side:el===start[0]?'startDate':'endDate'};
+  }
   function control(el){
     const month=neteaseMonthRange(el);if(month)return month;
     const linked=el.closest('.cascader-plugins-wrap');
@@ -35,6 +45,8 @@
     if(layers)return {type:'region',root:layers,library:'jbs',trigger:'.jbs_three_layers_input',popup:'.jbs_three_layers_wrapper',column:'.cascader_panel_menu',option:'.cascader_panel_item',label:'.cascader_item_label',multiple:!layers.querySelector('.jbs_three_layers_input > div:first-child > div')||!!layers.querySelector('.selected-item')};
     const cascader=el.closest('.el-cascader');
     if(cascader)return {type:'region',root:cascader,library:'element',popup:'.el-cascader__dropdown',column:'.el-cascader-menu__list',option:'.el-cascader-node',label:'.el-cascader-node__label',multiple:!!cascader.querySelector('.el-cascader__tags')};
+    const antCascader=el.closest('.ant-cascader-picker');
+    if(antCascader)return {type:'region',root:antCascader,library:'ant3-cascader',popup:'.ant-cascader-menus',column:'.ant-cascader-menu',option:'.ant-cascader-menu-item',label:'.ant-cascader-menu-item-label',multiple:!!antCascader.querySelector('[role="checkbox"],.ant-select-selection--multiple')};
     const select=el.closest('.el-select');
     if(select)return {type:'select',root:select,library:'element',search:el.matches('input:not([readonly])'),multiple:!!select.querySelector('.el-select__tags'),popup:'.el-select-dropdown',option:'.el-select-dropdown__item'};
     const auto=el.closest('.el-autocomplete');
@@ -42,7 +54,7 @@
     const date=el.closest('.el-date-editor,.ant-picker');
     if(date&&!date.matches('.el-range-editor,.ant-picker-range'))return {type:'date',root:date,library:date.matches('.ant-picker')?'ant':'element'};
     const oldDate=el.closest('.ant-calendar-picker');
-    if(oldDate&&!oldDate.querySelector('.ant-calendar-range-picker-input,.ant-calendar-range-picker-separator'))return {type:'date',root:oldDate,library:'ant3-date'};
+    if(oldDate&&!oldDate.querySelector('.ant-calendar-range-picker-input,.ant-calendar-range-picker-separator'))return {type:'date',root:oldDate,library:'ant3-date',...pairedDates(el)};
     const ant=el.closest('.ant-select');
     // Ant v3 TreeSelect puts the combobox role on the outer span and its
     // search input in the portal, unlike Select's inner combobox element.
@@ -128,10 +140,15 @@
       if(prev?.matches('th,td')&&!prev.querySelector(inputSelector))add(text(prev),'table',85);
     }
     if(wrap?.tagName==='DD'&&wrap.previousElementSibling?.tagName==='DT')add(text(wrap.previousElementSibling),'description-list',85);
-    for(let p=el.parentElement,depth=0;p&&p!==document.body&&depth<5;p=p.parentElement,depth++){
+    // Component FormItems may contain only the control, with the real title
+    // above several wrappers. Ascend only while there is one logical field.
+    const controlRoot=control(el)?.root;
+    for(let p=el.parentElement,depth=0;p&&p!==document.body&&depth<12;p=p.parentElement,depth++){
       if(controls(p).length!==1)break;
+      if(p!==wrap&&p.contains(wrap)&&result.some(item=>item.rank>=90))break;
+      if(controlRoot&&(p===controlRoot||controlRoot.contains(p)))continue;
       const described=new Set([...(el.getAttribute('aria-describedby')||'').split(/\s+/),...(el.getAttribute('aria-errormessage')||'').split(/\s+/)].filter(Boolean));
-      const referencesElsewhere=node=>{const target=node.matches('label[for]')?el.ownerDocument.getElementById(node.htmlFor):null;return target&&target!==el&&!target.contains(el);};
+      const referencesElsewhere=node=>[...(node.matches('label[for]')?[node]:[]),...node.querySelectorAll('label[for]')].some(label=>{const target=el.ownerDocument.getElementById(label.htmlFor);return target&&target!==el&&!target.contains(el);});
       const candidates=[...p.children].filter(n=>!n.contains(el)&&!n.matches(inputSelector)&&!n.querySelector(inputSelector)&&!referencesElsewhere(n)&&!described.has(n.id)&&text(n)&&text(n).length<65&&!n.matches('button,svg,small,[role="option"],[role="button"],.brick-select,.aui-select,.ant-select,.el-select'));
       if(candidates.length===1)add(text(candidates[0]),'nearby',80);
     }
@@ -197,7 +214,7 @@
     // never a field title ("项目名称"), a nav link, or a wrapper of input values.
     if(root?.matches('.el-form-item,.ant-form-item,.atsx-form-item,.ud-formily-item,.form-item,.form-group,.field,[data-field],label,td,dd'))return '';
     const allowed=new Set((Array.isArray(allowedModuleTitles)?allowedModuleTitles:[]).filter(title=>typeof title==='string').map(M.normalize));
-    const titles=[...(root?.children||[])].filter(node=>/\b(?:[\w]+[-_])*(?:title|heading|header)(?:[-_][\w]+)*\b/i.test(String(node.className))&&!node.querySelector(inputSelector+',a,button,[role="button"]')&&!node.matches('label,a,button,[role="button"]'))
+    const titles=[...(root?.children||[])].filter(node=>/\b(?:[\w]+[-_])*(?:title|heading|header)(?:[-_][\w]+)*\b/i.test(String(node.className).replace(/([a-z])([A-Z])/g,'$1-$2'))&&!node.querySelector(inputSelector+',a,button,[role="button"]')&&!node.matches('label,a,button,[role="button"]'))
       .map(node=>text(node)).filter(title=>{
         if(!title||title.length>60||labelPlaceholder(title))return false;
         const normalized=M.normalize(title).replace(/(?:必填|required|选填|optional)$/,'');
@@ -350,7 +367,7 @@
     if(c?.library==='ant3-month'||el.type==='month'||/yyyy[\-/]mm(?![\-/]dd)/i.test(format)||c?.root.matches('.el-date-editor--month'))return 'month';
     return 'day';
   }
-  function invalid(el){return el.getAttribute('aria-invalid')==='true'||(el.validity&&!el.validity.valid)||!!el.closest('.el-form-item.is-error,.ant-form-item-has-error,.ant-form-item.has-error,.ud-formily-item-error')||!!el.closest('.atsx-form-item')?.querySelector('.has-error');}
+  function invalid(el){return el.getAttribute('aria-invalid')==='true'||(el.validity&&!el.validity.valid)||!!el.closest('.el-form-item.is-error,.ant-form-item-has-error,.ant-form-item.has-error,.ant-form-item-control.has-error,.ud-formily-item-error')||!!el.closest('.atsx-form-item')?.querySelector('.has-error')||!!pairedDates(el)?.range.matches('[aria-invalid="true"],.is-error,[class^="dateRangePickerError___"],[class*=" dateRangePickerError___"]');}
   function selectionInvalid(el){
     if(!invalid(el))return false;
     if(el.getAttribute('aria-invalid')==='true'||el.validity&&!el.validity.valid)return true;
@@ -420,6 +437,7 @@
   function regionValue(c){
     if(c.library==='ant-linked')return c.selects.map(antValue).filter(Boolean).join(' / ');
     if(c.library==='ant3-tree')return antValue(c.root);
+    if(c.library==='ant3-cascader')return M.labelText(c.root.querySelector('.ant-cascader-picker-label')?.textContent||'');
     const input=c.root.querySelector(c.trigger?c.trigger+' input':'input');
     return input&&!placeholder(input.value)?input.value.trim():'';
   }
@@ -434,6 +452,7 @@
   }
   function regionLeaf(c,option){
     if(c.library==='jbs')return option.classList.contains('leaf');
+    if(c.library==='ant3-cascader')return !option.matches('.ant-cascader-menu-item-expand')&&!option.querySelector('.ant-cascader-menu-item-expand-icon');
     return !option.querySelector('.el-cascader-node__postfix')&&option.getAttribute('aria-expanded')!=='false'&&option.getAttribute('aria-expanded')!=='true';
   }
   async function closeRegion(c,el,seen){
@@ -452,24 +471,29 @@
     if(c.library==='ant-linked')return chooseLinkedRegion(c,value);
     if(c.library==='ant3-tree')return chooseTreeRegion(c,el,value);
     const before=regionValue(c);if(before)return {error:'网站已有地区，已保留'};
+    let intervened=false;const human=event=>{if(event.isTrusted)intervened=true;};
+    const guarded=c.library==='ant3-cascader',events=['input','change','pointerdown','keydown'];
+    const unchanged=()=>c.root.isConnected&&(!guarded||!intervened&&regionValue(c)===before&&!c.root.matches('.ant-cascader-picker-disabled,[aria-disabled="true"]')&&!c.root.querySelector('input:disabled'));
+    if(!unchanged())return {error:'地区控件已变化或禁用，请重新识别'};
     const seen=new Set([...document.querySelectorAll(c.popup)].filter(visible));
     const trigger=()=>c.root.querySelector(c.trigger||'input');
     let rest=regionText(value),panel,leaf='',path=[],previousChildren=null;
     if(!rest)return {error:'资料没有可用的地区'};
+    if(guarded)for(const event of events)document.addEventListener(event,human,true);
     try{
       const t=trigger();t.focus();
       panel=regionPanel(c,el,seen);if(!panel)t.click();
       for(let level=0;level<4;level++){
         let chosen=null;
         for(let retry=0;retry<15;retry++){
-          await wait(100);if(!c.root.isConnected)return {error:'地区控件已变化，请重新识别'};panel=regionPanel(c,el,seen);
+          await wait(100);if(!unchanged())return {error:'地区控件已变化，请重新识别'};panel=regionPanel(c,el,seen);
           if(!panel)continue;
           if(panel.querySelector('.el-checkbox,[role="checkbox"]'))return {error:'多选地区请在官网确认'};
           const column=[...panel.querySelectorAll(c.column)].filter(visible)[level];
           if(!column)continue;
           const children=[...column.querySelectorAll(c.option)];
           if(previousChildren&&children.length===previousChildren.length&&children.every((o,i)=>o===previousChildren[i]))continue;
-          const candidates=[...column.querySelectorAll(c.option)].filter(o=>visible(o)&&!o.matches('.is-disabled,.disabled,[aria-disabled="true"],[disabled]')).map(o=>{
+          const candidates=[...column.querySelectorAll(c.option)].filter(o=>visible(o)&&!o.matches('.is-disabled,.disabled,.ant-cascader-menu-item-disabled,[aria-disabled="true"],[disabled]')).map(o=>{
             const name=(o.querySelector(c.label)?.textContent||o.textContent).trim(),isLeaf=regionLeaf(c,o);
             let used=regionPrefixes(name,level).filter(n=>rest.startsWith(n)).sort((a,b)=>b.length-a.length)[0];
             // Municipalities often repeat the same name in both columns.
@@ -481,6 +505,7 @@
           if(candidates.length===1){chosen=candidates[0];break;}
         }
         if(!chosen)return {error:'未找到完整的省市对应选项，请在官网核对'};
+        if(!unchanged())return {error:'地区控件已变化，请重新识别'};
         if(!chosen.isLeaf&&!rest.slice(chosen.used.length)&&!/^(北京|上海|天津|重庆|香港|澳门)$/.test(regionNames(chosen.name).at(-1)))return {error:'资料只有上级地区，官网还需要下级地区'};
         const nextColumn=[...panel.querySelectorAll(c.column)].filter(visible)[level+1];
         previousChildren=chosen.el.matches('.active,.in-active-path,[aria-expanded="true"]')?null:nextColumn?[...nextColumn.querySelectorAll(c.option)]:null;
@@ -494,9 +519,10 @@
       if(!leaf||rest)return {error:'地区层级尚未选完，请在官网核对'};
       await wait(100);await closeRegion(c,el,seen);await wait(450);
       const after=regionValue(c),actual=regionText(after),whole=regionText(path.join('/'));
-      const committed=c.root.isConnected&&!!actual&&(regionNames(leaf).some(n=>regionNames(actual).includes(n))||actual===whole)&&!invalid(c.root.querySelector('input')||el)&&!regionPanel(c,el,seen);
+      const committed=c.root.isConnected&&(!guarded||!intervened&&!c.root.matches('.ant-cascader-picker-disabled,[aria-disabled="true"]')&&!c.root.querySelector('input:disabled'))&&!!actual&&(regionNames(leaf).some(n=>regionNames(actual).includes(n))||actual===whole)&&!invalid(c.root.querySelector('input')||el)&&!regionPanel(c,el,seen);
       return committed?{before,after,type:'custom'}:{error:'网站未确认地区选项，请在官网核对'};
     }finally{
+      if(guarded)for(const event of events)document.removeEventListener(event,human,true);
       if(regionPanel(c,el,seen))await closeRegion(c,el,seen);
     }
   }
@@ -625,20 +651,28 @@
   }
   async function antDate(el,target,c){
     const before=el.value,seen=new Set([...document.querySelectorAll('.ant-calendar-picker-container')].filter(visible));
-    let popup;
+    let popup,intervened=false;
+    const otherInput=c.side==='startDate'?c.endInput:c.startInput,other=otherInput?.value;
+    const samePair=()=>{if(!c.range)return true;const pair=pairedDates(el);return pair?.range===c.range&&pair.startInput===c.startInput&&pair.endInput===c.endInput;};
+    const unchanged=()=>!intervened&&el.isConnected&&!el.disabled&&el.value===before&&samePair()&&(!c.range||otherInput?.value===other);
+    const strict=c.range&&/结束时间需晚于开始时间/.test(c.range.parentElement?.textContent||'');
+    if(M.isFullDate(other)&&(c.side==='startDate'?(strict?target>=other:target>other):(strict?target<=other:target<other)))return {error:'起止日期与已有另一端冲突，请核对同一段经历'};
+    const userChanged=event=>{if(event.isTrusted)intervened=true;},events=['pointerdown','mousedown','keydown','input','change'];
+    for(const name of events)document.addEventListener(name,userChanged,true);
     try{
+      if(!unchanged())return {error:'日期字段已变化，请重新识别'};
       el.focus();el.click();
       for(let retry=0;retry<15;retry++){
-        await wait(100);if(!el.isConnected||el.disabled||el.value!==before)return {error:'日期字段已变化，请重新识别'};
+        await wait(100);if(!unchanged())return {error:'日期字段已变化，请重新识别'};
         const popups=[...document.querySelectorAll('.ant-calendar-picker-container')].filter(node=>visible(node)&&!seen.has(node));
         if(popups.length===1){popup=popups[0];break;}
       }
       const input=popup?.querySelector('.ant-calendar-input:not([readonly]):not([disabled])');
-      if(!input)return {error:'没有唯一可输入的日历，请在官网选择日期'};
+      if(!input||!unchanged())return {error:'没有唯一可输入的日历，请在官网选择日期'};
       input.focus();type(input,target);key(input,'Enter',13);await wait(450);
-      const committed=el.isConnected&&el.value===target&&!invalid(el)&&!visible(popup);
+      const committed=!intervened&&el.isConnected&&!el.disabled&&el.value===target&&samePair()&&(!c.range||otherInput?.value===other)&&!invalid(el)&&!visible(popup);
       return committed?{before,after:el.value,type:'custom'}:{error:'网站未确认日历日期，请手动核对'};
-    }finally{if(popup&&visible(popup)){const input=popup.querySelector('input');if(input){key(input,'Escape',27);input.blur();}}el.blur();}
+    }finally{for(const name of events)document.removeEventListener(name,userChanged,true);if(!intervened&&popup&&visible(popup)){const input=popup.querySelector('input');if(input){key(input,'Escape',27);input.blur();}}if(!intervened)el.blur();}
   }
   async function antMonth(el,target,c){
     const before=el.value,seen=new Set([...document.querySelectorAll('.ant-calendar-picker-container')].filter(visible));let popup,intervened=false;

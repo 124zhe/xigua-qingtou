@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  if (globalThis.__qingtou?.version === '0.5.9') return;
+  if (globalThis.__qingtou?.version === '0.5.11') return;
   if (globalThis.__qingtou?.isBusy?.()) return;
   globalThis.__qingtou?.dispose?.();
   document.getElementById('qingtou-host')?.remove();
@@ -8,12 +8,12 @@
   const contactQuestions={'basic.emergencyName':'紧急联系人姓名','basic.emergencyPhone':'紧急联系电话','basic.emergencyRelation':'与紧急联系人关系'};
   if(!M||!F)throw new Error('通用表单引擎未加载，请在扩展管理页重新加载轻投，再刷新招聘页面。');
   let panelHost, history = [], busy = false, currentProfile, cleanupPanel=()=>{};
-  let sequentialRecords=new WeakMap(),sequentialMembers=new WeakMap();
+  let sequentialRecords=new WeakMap(),sequentialMembers=new WeakMap(),mappingProfile;
   const runtime=globalThis.chrome?.runtime?.id?chrome.runtime:null;
   const runtimeInfo=()=>{
     let runtimeReady=false;
     try{runtimeReady=!!runtime?.getManifest()?.version;}catch{}
-    return {version:'0.5.9',panelOpen:!!panelHost?.isConnected,busy:!!busy,runtimeReady};
+    return {version:'0.5.11',panelOpen:!!panelHost?.isConnected,busy:!!busy,runtimeReady};
   };
   const installedVersion=()=>{try{return runtime?.getManifest()?.version||'';}catch{return '';}};
   const syncSavedProfile=!!runtime&&/^https?:$/.test(location.protocol);
@@ -256,8 +256,20 @@
   const contentValue=value=>String(value??'').replace(/[\u200B-\u200D\uFEFF]/g,'').trim()?String(value):'';
   function selectedText(el){if(F?.control(el)?.type==='region')return F.read(el);if(ceairSelect(el)){const t=cleanLabel(el.querySelector(':scope > .select_span,:scope > .select_span2')?.textContent);return genericLabel(t)?'':t;}if(ceairGender(el))return cleanLabel(el.parentElement.querySelector('span[value]')?.textContent);const hw=huaweiSelect(el);if(hw){const known=huaweiSelection.get(hw);return contentValue(known&&known.display===el.value?known.label:el.closest('.aui-form-item.is-error')?'':el.value);}const ant=antSelect(el);if(ant)return cleanLabel(ant.querySelector('.ant-select-selection-item')?.textContent);const select=mokaSelect(el);if(!select&&F?.read(el)!==null&&F?.read(el)!==undefined)return F.read(el);return select?cleanLabel(select.querySelector('[class^="sd-Input-display-value-"]')?.textContent):contentValue(el.isContentEditable?el.textContent:el.value);}
   function atsxIdentityIssue(el,profile){
-    const group=el.closest('#id-card-select-component,.ud-formily-item[data-form-field-name="identification"]');if(!group)return '';
-    const type=group.querySelector('.id-type-select,.ud__select'),selected=type&&F?.read(type),intended=M.identityValue(profile,'basic.documentType');
+    const group=el.closest('#id-card-select-component,.ud-formily-item[data-form-field-name="identification"]');
+    let type=group?.querySelector('.id-type-select,.ud__select');
+    if(!group){
+      // Separate type/number rows still belong to one identity when their
+      // nearest shared container contains exactly one of each semantic key.
+      for(let p=el.parentElement,depth=0;p&&p!==document.body&&depth<12;p=p.parentElement,depth++){
+        const fields=F.controls(p).map(node=>({node,key:F.infer(node,contextOf(node)).key}));
+        const numbers=fields.filter(item=>item.key==='basic.documentNumber'),types=fields.filter(item=>item.key==='basic.documentType');
+        if(numbers.length>1||types.length>1)break;
+        if(numbers.length===1&&types.length===1){type=types[0].node;break;}
+      }
+      if(!type)return '';
+    }
+    const selected=type&&(F.read(type)??(type.tagName==='SELECT'?type.selectedOptions[0]?.textContent:type.value)),intended=M.identityValue(profile,'basic.documentType');
     if(!intended)return '请先在基本资料中补充本人的证件类型，再填写号码';
     return selected&&M.optionScore(intended,selected)?'':'证件类型不一致或尚未选中，请先在官网选择对应类型，再填写号码';
   }
@@ -282,6 +294,7 @@
     if(is51job){const title=job51Title(el);if(/家庭|亲属|个人声明/.test(title))return 'sensitive';const kind=M.sectionKind(title);if(kind)return kind;}
     const generic=F?.section(el);if(generic?.kind==='sensitive')return 'sensitive';
     if(generic?.kind==='emergency')return 'emergency';
+    if(M.isCampusSection(generic?.title)&&M.moduleContexts(mappingProfile||currentProfile||{modules:[]},generic.title).length)return '';
     let kind=huaweiKind(el)||(isBaidu?(el.closest('#resume-edu-info')?'educations':el.closest('#resume-work-info')?'experiences':el.closest('#resume-project-info')?'projects':''):'');
     for (let p = el.parentElement, depth = 0; p && depth < 14 && p !== document.body; p=p.parentElement, depth++) {
       const text = [p.getAttribute('data-section'), p.getAttribute('data-kind'), p.querySelector(':scope > legend,:scope > h2,:scope > h3,:scope > h4,:scope > .section-title,:scope > .module-header,:scope > .record-title')?.textContent, isCtrip?p.querySelector(':scope > .titles')?.textContent:'',textWithoutControls(directClass(p,'blockTitle-')), p.className].filter(x=>typeof x==='string').join(' ');
@@ -337,6 +350,7 @@
     const kinds=['educations','experiences','projects'],groups=new Map();
     const active=controls.filter(el=>visible(el)&&!['hidden','button','submit','reset','checkbox','file','password'].includes(el.type));
     const entries=active.map(el=>{
+      const ownScope=F.section(el);if(M.isCampusSection(ownScope?.title)&&M.moduleContexts(profile,ownScope.title).length)return null;
       const context=contextOf(el),mapping=F.infer(el,context),kind=kinds.includes(context)?context:mapping.key?.split('.')[0];
       if(!kinds.includes(kind)||['sensitive','emergency'].includes(context)||mapping.blocked||M.manualOnly(mapping.label))return null;
       const scope=F.section(el),block=scope?.kind===kind?scope.root:el.closest('section,fieldset,form')||document.body;
@@ -562,7 +576,7 @@
     if(needsFullDate(d.el)){
       if(d.dateNeedsDay)d.locked=false;
       d.dateConvention='';
-      if(d.datePolicy!=='ask'&&/^(educations|experiences|projects)\.(startDate|endDate)$/.test(d.key||'')&&/^\d{4}-(0[1-9]|1[0-2])$/.test(value)&&M.isFullDate(value+'-01')){
+      if(d.datePolicy!=='ask'&&(/^(educations|experiences|projects)\.(startDate|endDate)$/.test(d.key||'')||d.moduleDateSide)&&/^\d{4}-(0[1-9]|1[0-2])$/.test(value)&&M.isFullDate(value+'-01')){
         d.value=value+'-01';d.dateConvention=`填写约定：原资料为 ${value}，按当月 1 日填写。`;
       }
       d.dateNeedsDay=!!value&&!M.isFullDate(d.value);
@@ -609,10 +623,10 @@
     }
     for(const group of groups.values()) {
       let index=0;const used=new Set(),anchored=new Map(),candidates=new Map(),conflicts=new Set(),dated=new Set();
-      const module=[...group.values()][0].items[0].module,isAward=M.moduleContexts({modules:[module]},'获奖经历').length===1;
+      const module=[...group.values()][0].items[0].module,isCampus=[module.name,...module.aliases].some(M.isCampusSection),isAward=M.moduleContexts({modules:[module]},'获奖经历').length===1,isNamed=isAward||isCampus;
       // Some forms omit record wrappers. Repeated award names establish row
       // boundaries; a repeated generic description alone does not.
-      const names=M.moduleFields(module,'获奖名称'),nameId=names.length===1?names[0].id:null;
+      const names=M.moduleFields(module,isCampus?'活动名称':'获奖名称'),nameId=names.length===1?names[0].id:null;
       const records=[...group.values()].flatMap(record=>{
         if(!isAward||!nameId||record.fields.get(nameId)?.size<2||record.items.find(a=>a.field)?.field.id!==nameId)return [record];
         const parts=[];let part;
@@ -623,24 +637,25 @@
         }
         return parts;
       }).filter(record=>!isAward||record.fields.size);
-      if(isAward){
-        const dates=M.moduleFields(module,'获奖时间'),dateId=dates.length===1?dates[0].id:null;
+      if(isNamed){
+        const dateLabels=isCampus?['开始日期','结束日期']:['获奖时间'];
+        const dates=dateLabels.flatMap(label=>{const fields=M.moduleFields(module,label);return fields.length===1?fields:[];}),dateIds=new Set(dates.map(f=>f.id));
         for(const record of records){
           if([...record.fields.values()].some(seen=>seen.size>1))continue;
-          const anchors=record.items.filter(a=>a.field&&(a.field.id===nameId||a.field.id===dateId)).map(a=>({id:a.field.id,value:existingPart(a.el),part:dateParts(a.el)?.part})).filter(a=>a.value&&!/^(?:请选择|选择|select|choose)/i.test(a.value));
+          const anchors=record.items.filter(a=>a.field&&(a.field.id===nameId||dateIds.has(a.field.id))).map(a=>({id:a.field.id,value:existingPart(a.el),part:dateParts(a.el)?.part})).filter(a=>a.value&&!/^(?:请选择|选择|select|choose)/i.test(a.value));
           if(!anchors.length)continue;
-          if(anchors.some(a=>a.id===dateId))dated.add(record);
-          const matches=module.entries.map((e,i)=>({e,i})).filter(({e})=>anchors.every(a=>a.id===dateId?dateAnchorMatches(e.values[a.id],a):M.normalize(e.values[a.id])===M.normalize(a.value)));
+          if(anchors.some(a=>dateIds.has(a.id)))dated.add(record);
+          const matches=module.entries.map((e,i)=>({e,i})).filter(({e})=>anchors.every(a=>dateIds.has(a.id)?dateAnchorMatches(e.values[a.id],a):M.normalize(e.values[a.id])===M.normalize(a.value)));
           candidates.set(record,matches.map(x=>x.i));
           if(matches.length===1&&!used.has(matches[0].i)){anchored.set(record,matches[0].i);used.add(matches[0].i);}
-          else if(!matches.length&&anchors.some(a=>a.id===dateId))conflicts.add(record);
+          else if(!matches.length&&anchors.some(a=>dateIds.has(a.id)))conflicts.add(record);
         }
       }
       for(const record of records) {
         const ambiguous=[...record.fields.values()].some(seen=>seen.size>1);
         const compatible=candidates.get(record)?.find(i=>!used.has(i));
         const exhaustedDate=dated.has(record)&&!anchored.has(record)&&!conflicts.has(record)&&compatible===undefined;
-        let matched=isAward?(ambiguous||conflicts.has(record)||exhaustedDate?-1:anchored.has(record)?anchored.get(record):compatible??module.entries.findIndex((e,i)=>!used.has(i))):index;
+        let matched=isNamed?(ambiguous||conflicts.has(record)||exhaustedDate?-1:anchored.has(record)?anchored.get(record):compatible??module.entries.findIndex((e,i)=>!used.has(i))):index;
         if(is51job){
           const first=record.items[0],block=job51Module(first.el),form=first.el.closest('form.basic-wrapper'),editing=form?.parentElement.previousElementSibling;
           let unknown=false;
@@ -658,12 +673,12 @@
           matched=current.length?(matches.length===1?matches[0].i:-1):unknown||editing?.matches('.field-list-box')?-1:module.entries.findIndex((_,i)=>!used.has(i));
           if(matched>=0)used.add(matched);
         }
-        if(isAward&&matched>=0)used.add(matched);
+        if(isNamed&&matched>=0)used.add(matched);
         for(const a of record.items){
           a.index=matched;
-          if(ambiguous||conflicts.has(record)){a.field=null;a.reason=ambiguous?'重复记录结构不明确，请手动指定对应记录':'已有奖项名称或日期与资料冲突，请核对；日期和说明不跨奖项借用';}
-          else if(exhaustedDate){a.field=null;a.reason='这个奖项已对应其他网页记录，没有更多兼容资料，请核对重复项';}
-          else if(isAward&&matched>=0&&!anchored.has(record))a.reviewNote='按简历第 '+(matched+1)+' 条奖项补填，请核对对应关系；网页已有内容保留。';
+          if(ambiguous||conflicts.has(record)){a.field=null;a.reason=ambiguous?'重复记录结构不明确，请手动指定对应记录':isCampus?'已有活动名称或日期与校园资料冲突，请核对；内容不跨活动借用':'已有奖项名称或日期与资料冲突，请核对；日期和说明不跨奖项借用';}
+          else if(exhaustedDate){a.field=null;a.reason='这条记录已对应其他网页记录，没有更多兼容资料，请核对重复项';}
+          else if(isNamed&&matched>=0&&!anchored.has(record))a.reviewNote='按简历第 '+(matched+1)+' 条'+(isCampus?'校园经历':'奖项')+'补填，请核对对应关系；网页已有内容保留。';
         }
         index++;
       }
@@ -671,6 +686,7 @@
     return assignments;
   }
   function scan(profile) {
+    mappingProfile=profile;
     F?.beginScan();
     const descriptors=[], counters={}, radioSeen=new Set();
     const controls=[...(F?F.controls():document.querySelectorAll(controlsSelector)),...(isCeair?document.querySelectorAll('.select_box,.select_box2,#spMan'):[])];
@@ -756,6 +772,7 @@
       const occupied=!!existing && !placeholderSelected;
       const descriptor={id:String(descriptors.length),el,elements,type,label:label||'未命名字段',kind,key,index,value,fullValue,part:dateInfo?.part,present,recordInfo,needsRecord,noRecord,moduleId:moduleField?.module?.id,fieldId:moduleField?.field?.id,recordCustomKind,customFieldId,recognized:!!key||!!mapping.recognized||!!moduleField||!!customInfo?.recognized,reason,source,occupied,existing,datePolicy:profile.preferences?.monthOnlyDates||'first-day',locked:customReadonly||protectedField||!!identityIssue};
       descriptor.reviewNote=[moduleInfo?.reviewNote,assignment?.reviewNote||(recordInfo?.sequence&&index>=0?'按网页字段顺序推测为简历第 '+(index+1)+' 条，请核对整段归属。':''),customReview].filter(Boolean).join(' ');
+      if(!moduleInfo&&M.isCampusSection(F.section(el)?.title)&&key?.startsWith('projects.'))descriptor.reviewNote=[descriptor.reviewNote,'校园经历使用对应项目资料补填，请核对这段活动是否适合该栏目。'].filter(Boolean).join(' ');
       descriptor.alternatives=assignment?.alternatives||[];
       descriptor.answerConflict=!!customInfo?.conflict;
       descriptor.customLabel=contactQuestions[key]||label;
@@ -763,6 +780,7 @@
       descriptor.moduleRecord=moduleInfo?.record;
       descriptor.moduleContextId=moduleInfo?.module?.id;
       descriptor.moduleDefinition=moduleField?.module;
+      descriptor.moduleDateSide=moduleField&&[moduleField.module.name,...moduleField.module.aliases].some(M.isCampusSection)?['startDate','endDate'].find((side,i)=>M.moduleFields(moduleField.module,i?'结束日期':'开始日期').some(f=>f.id===moduleField.field.id)):undefined;
       descriptor.moduleRoot=moduleInfo?.contextRoot;
       descriptor.moduleLabel=moduleField?labelOf(el,isRadio):'';
       descriptor.awardDate=!!moduleField&&M.moduleContexts({modules:[moduleField.module]},'获奖经历').length===1&&M.moduleFields(moduleField.module,'获奖时间').some(f=>f.id===moduleField.field.id);
@@ -1220,7 +1238,7 @@
       .correction{margin:6px 0 0 22px;color:#65756b;font-size:12px}.correction summary{cursor:pointer}.correction select{margin:6px 0 0;width:100%}.value{display:block}.value:empty{display:none}.list{min-height:0;overflow-x:hidden}.line{flex-wrap:wrap}.label{min-width:0;overflow-wrap:anywhere}.hint{max-width:100%;overflow-wrap:anywhere;flex-shrink:1}.row select{min-width:0;max-width:100%;text-overflow:ellipsis}.counts{display:flex;gap:5px 10px;flex-wrap:wrap;margin-bottom:8px;font-size:12px}.counts span[data-state="ready"]{color:#246b4d;font-weight:650}.counts span[data-state="failed"]{color:#9b5b30}.choose-records{border:0;padding:0;background:transparent;color:#246b4d;text-decoration:underline;margin-bottom:8px}
       .profile-tools{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.profile-tools button{padding:7px 10px;font-weight:600;font-size:12px}.supplement{margin:8px 0 0 22px;padding:3px 0;border:0;background:transparent;color:#246b4d;text-decoration:underline}.intro{max-height:42%;overflow-y:auto;flex-shrink:0}.foot{flex-shrink:0}.record-note{margin:8px 0;color:#687768;font-size:12px}.use-practice{width:100%;text-align:left;overflow-wrap:anywhere;margin:4px 0}
       .view-tools{display:flex;gap:6px;margin-top:8px;align-items:center}.view-tools button{font-size:12px;padding:5px 9px;border:1px solid #d6ded2;border-radius:7px;color:#365647;background:#fff}.view-tools button[aria-pressed="true"]{background:#e2eee4;border-color:#80a98e;font-weight:650}.view-tools .diagnostics{margin-left:auto}.view-note{font-size:12px;color:#68796c;margin:7px 0 0}.preview-section{margin:12px 0 6px}.section-title{font-size:14px;margin:0;padding:7px 9px;background:#f0f4e9;border-radius:7px}.completed{margin:7px 0;color:#6b786c}.completed>summary{cursor:pointer;padding:6px 0;font-size:12px}.completed .row{opacity:.85}.issue{margin:7px 0 0 22px;color:#805d2e;font-size:12px}.issue b{display:block;font-weight:600}.locate{margin:6px 0 0 22px;padding:2px 0;border:0;background:transparent;color:#396a56;font-size:12px;text-decoration:underline}.version-note{font-size:11px;color:#748073}.row[hidden],.completed[hidden]{display:none!important}.row:focus-within{background:#f7f9f1}.record-picker{border-bottom:1px dashed #d9e0d1}
-      </style><section class="panel" aria-label="轻投填写预览"><header><div><h2>轻投 <small> / 填写预览</small></h2><small>检查内容，再写入当前页面 · <span class="runtime-version">0.5.9</span></small></div><button class="close" aria-label="关闭轻投">×</button></header><div class="intro"><div class="summary"></div><div class="counts" aria-live="polite"></div><div class="profile-tools"><button class="primary edit-profile">＋ 补充资料</button><button class="secondary refresh-profile">更新资料</button></div><button class="choose-records" hidden>去确认对应经历 →</button><div class="note">缺少内容可点击“补充此项”；保存后返回继续填写。</div><div class="warning note"></div><div class="view-tools"><button type="button" class="view-pending" aria-pressed="true">待处理</button><button type="button" class="view-all" aria-pressed="false">全部</button><button type="button" class="diagnostics">导出诊断</button></div><p class="view-note"></p><p class="version-note"></p></div><div class="list"></div><div class="foot"><div class="actions"><button class="primary apply">填写所选项</button><button class="secondary rescan">重新识别</button><button class="secondary undo">撤销</button></div><p class="status" role="status">保留已有内容，附件需单独勾选；提交由你完成。</p></div></section>`;
+      </style><section class="panel" aria-label="轻投填写预览"><header><div><h2>轻投 <small> / 填写预览</small></h2><small>检查内容，再写入当前页面 · <span class="runtime-version">0.5.11</span></small></div><button class="close" aria-label="关闭轻投">×</button></header><div class="intro"><div class="summary"></div><div class="counts" aria-live="polite"></div><div class="profile-tools"><button class="primary edit-profile">＋ 补充资料</button><button class="secondary refresh-profile">更新资料</button></div><button class="choose-records" hidden>去确认对应经历 →</button><div class="note">缺少内容可点击“补充此项”；保存后返回继续填写。</div><div class="warning note"></div><div class="view-tools"><button type="button" class="view-pending" aria-pressed="true">待处理</button><button type="button" class="view-all" aria-pressed="false">全部</button><button type="button" class="diagnostics">导出诊断</button></div><p class="view-note"></p><p class="version-note"></p></div><div class="list"></div><div class="foot"><div class="actions"><button class="primary apply">填写所选项</button><button class="secondary rescan">重新识别</button><button class="secondary undo">撤销</button></div><p class="status" role="status">保留已有内容，附件需单独勾选；提交由你完成。</p></div></section>`;
     const descriptors=scan(profile),available=mappings(profile), rows=new Map(),recordSelectors=new Map(),recordBoxes=new Map(),sections=new Map();
     const bindingEntries=()=>descriptors.filter(d=>d.part||d.key==='modules'&&d.moduleId||d.recordInfo&&recordAnchorFields[d.recordInfo.kind]?.some(field=>d.key===d.recordInfo.kind+'.'+field)).map(d=>[d.id,currentField(d)?.value??null]);
     const bindingSnapshot=()=>JSON.stringify(bindingEntries());
@@ -1228,7 +1246,7 @@
     const status=shadow.querySelector('.status'), apply=shadow.querySelector('.apply');
     const readout=document.createElement('details');readout.className='profile-readout note';
     const readoutTitle=document.createElement('summary');readoutTitle.textContent='查看本次读取的教育资料';readoutTitle.style.cursor='pointer';readout.append(readoutTitle);
-    const version=document.createElement('p');version.textContent='轻投 0.5.9 · '+(profile.preferences?.monthOnlyDates==='ask'?'年月缺少具体日时等待补充':'经历年月按当月 1 日填写');readout.append(version);
+    const version=document.createElement('p');version.textContent='轻投 0.5.11 · '+(profile.preferences?.monthOnlyDates==='ask'?'年月缺少具体日时等待补充':'经历年月按当月 1 日填写');readout.append(version);
     profile.educations.forEach((e,i)=>{const item=document.createElement('p');item.style.overflowWrap='anywhere';item.textContent=`${i+1}. ${e.school||'未填写学校'} · ${e.major||'未填写专业'}\n学院：${e.college||'未填写'}\n毕业年月／日期：${e.endDate||'未填写'}\n学历：${e.education||'未填写'}`;item.style.whiteSpace='pre-wrap';readout.append(item);});
     if(!profile.educations.length){const empty=document.createElement('p');empty.textContent='当前资料没有教育经历。';readout.append(empty);}
     shadow.querySelector('.intro').append(readout);
@@ -1297,7 +1315,7 @@
     shadow.querySelector('.diagnostics').onclick=()=>{
       if(busy)return;
       if(!globalThis.QTDiagnostics){status.textContent='诊断模块未加载，请从工具栏更新当前页预览后重试。';return;}
-      try{const report=QTDiagnostics.build({descriptors,version:'0.5.9',installedVersion:installedVersion(),engine:F,stateOf:fieldState});QTDiagnostics.download(report);status.textContent='已在本地导出脱敏诊断：仅含字段类型、状态和数量，不含填写内容。';}
+      try{const report=QTDiagnostics.build({descriptors,version:'0.5.11',installedVersion:installedVersion(),engine:F,stateOf:fieldState});QTDiagnostics.download(report);status.textContent='已在本地导出脱敏诊断：仅含字段类型、状态和数量，不含填写内容。';}
       catch{status.textContent='诊断未能导出，请更新当前页预览后重试。';}
     };
     const installed=installedVersion();shadow.querySelector('.version-note').textContent=installed?'已安装 '+installed+' · 当前页 '+runtimeInfo().version:'当前页 '+runtimeInfo().version+' · 安装版本请从工具栏查看';
@@ -1473,7 +1491,8 @@
         const mapping=airline|| (parts?.side&&['educations','experiences','projects'].includes(kind)?{key:kind+'.'+parts.side}:useGeneric||generic?.key||generic?.blocked?generic:M.fieldKey(label,kind));
         const supportsReadonly=!!(mokaSelect(el)||antSelect(el)||ctripPicker(el)||huaweiSelect(el)||job51Select(el)||['select','region'].includes(c?.type)||['ant3-date','ant3-month'].includes(c?.library));
         const moduleContext=profile.modules.length?moduleContextOf(el,profile):null;
-        return [structureId(el),el.tagName,el.type,el.name,el.matches(':disabled'),!!el.closest('[inert],[aria-disabled="true"]'),!!el.readOnly&&!supportsReadonly,!!el.multiple,el.placeholder||'',kind,mapping.key||'',label,parts?.part||'',!!mapping.blocked,c?.type||'',c?.library||'',!!c?.multiple,structureId(record?.record),record?.kind||'',record?.title||'',record?.index??null,!!moduleContext?.blocked,structureId(moduleContext?.root),(moduleContext?.modules||[]).map(m=>m.id).sort()];
+        const placeholder=c?.library==='ant3-cascader'&&genericLabel(el.placeholder)?'':el.placeholder||'';
+        return [structureId(el),el.tagName,el.type,el.name,el.matches(':disabled'),!!el.closest('[inert],[aria-disabled="true"]'),!!el.readOnly&&!supportsReadonly,!!el.multiple,placeholder,kind,mapping.key||'',label,parts?.part||'',!!mapping.blocked,c?.type||'',c?.library||'',!!c?.multiple,structureId(record?.record),record?.kind||'',record?.title||'',record?.index??null,!!moduleContext?.blocked,structureId(moduleContext?.root),(moduleContext?.modules||[]).map(m=>m.id).sort()];
       }));}finally{F.endScan();}
     };
     const reviewedStructure=structureSnapshot();
@@ -1559,7 +1578,7 @@
       }
     };
   }
-  globalThis.__qingtou={open,scan,undo,runtimeInfo,version:'0.5.9',isBusy:()=>busy,dispose:()=>{cleanupPanel();runtime?.onMessage?.removeListener(profileMessage);}};
+  globalThis.__qingtou={open,scan,undo,runtimeInfo,version:'0.5.11',isBusy:()=>busy,dispose:()=>{cleanupPanel();runtime?.onMessage?.removeListener(profileMessage);}};
 })();
 
 
